@@ -15,7 +15,8 @@ Kaggle 대회 저장소. **학습·추론은 전부 Kaggle GPU 커널에서** �
 - 푸시 전 항상 **subset 스모크 테스트** 통과 확인 (`DEBUG=True`, 소수 샘플).
 - `kernel-metadata.json`의 `enable_internet`은 **항상 false**.
   (코드 대회 규칙 + 인터넷 켜면 제출 불가)
-- `kaggle.json`은 `~/.kaggle/kaggle.json` 에만 두고 절대 커밋하지 않는다.
+- API 토큰은 `~/.kaggle/access_token` 에만 두고 절대 커밋하지 않는다.
+  (Kaggle 신방식: `KGAT_`로 시작하는 문자열. 구 `kaggle.json`은 더 이상 발급되지 않는다)
 
 ## 레이블 순서
 

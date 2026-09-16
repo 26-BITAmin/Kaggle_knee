@@ -1,12 +1,15 @@
 # --- 절대 커밋 금지 ---
 kaggle.json
+access_token
 .kaggle/
+.env
+.env.*
+!.env.example
 *.dcm
 *.dicom
 
 # 데이터 (DICOM은 Kaggle에만 존재, 로컬은 CSV만)
-data/*
-!data/README.md
+data/
 
 # 대용량 산출물
 *.pth

@@ -12,8 +12,8 @@
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# Kaggle 토큰: kaggle.com > Settings > API > Create New Token
-mkdir -p ~/.kaggle && mv ~/Downloads/kaggle.json ~/.kaggle/ && chmod 600 ~/.kaggle/kaggle.json
+# Kaggle 토큰: kaggle.com/settings/api 에서 발급받은 KGAT_ 문자열
+mkdir -p ~/.kaggle && echo <KGAT_토큰> > ~/.kaggle/access_token && chmod 600 ~/.kaggle/access_token
 
 bash scripts/fetch_csv.sh      # CSV만 받는다 (-f 사용)
 python scripts/sync_labels.py  # 레이블 순서 확정

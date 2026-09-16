@@ -32,6 +32,8 @@ else:
     OUTPUT_DIR = ROOT / "outputs"
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+if not IS_KAGGLE:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 # --- 대회 파일 ---
 TRAIN_CSV = DATA_DIR / "train.csv"
