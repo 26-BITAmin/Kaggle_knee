@@ -1,0 +1,8 @@
+# 로컬 개발용 (학습은 Kaggle 커널에서 — 거기 환경은 이 파일과 무관)
+kaggle>=1.6
+pandas
+numpy
+scikit-learn
+pydicom
+matplotlib
+jupyter

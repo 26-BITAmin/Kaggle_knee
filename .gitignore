@@ -1,0 +1,36 @@
+# --- 절대 커밋 금지 ---
+kaggle.json
+.kaggle/
+*.dcm
+*.dicom
+
+# 데이터 (DICOM은 Kaggle에만 존재, 로컬은 CSV만)
+data/*
+!data/README.md
+
+# 대용량 산출물
+*.pth
+*.pt
+*.ckpt
+*.onnx
+*.npy
+*.npz
+*.zip
+*.tar.gz
+outputs/
+checkpoints/
+wandb/
+logs/
+
+# 파이썬
+.venv/
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.pytest_cache/
+.ruff_cache/
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/
