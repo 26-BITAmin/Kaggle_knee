@@ -1,6 +1,9 @@
-# Kaggle — RSNA Knee Abnormality Detection
+# Kaggle - RSNA Knee Abnormality Detection
 
-무릎 DICOM 영상의 12개 이상 소견 멀티라벨 분류. 평가는 macro AUC ROC.
+무릎 DICOM 영상의 12개 이상 소견 멀티라벨 분류
+
+평가는 macro AUC ROC
+
 **학습/추론은 Kaggle GPU 커널에서 수행하고, 이 저장소는 코드와 CSV만 관리한다.**
 
 ## 셋업
