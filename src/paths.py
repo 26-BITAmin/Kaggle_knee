@@ -36,10 +36,21 @@ if not IS_KAGGLE:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 # --- 대회 파일 ---
-TRAIN_CSV = DATA_DIR / "train.csv"
+TRAIN_CSV = DATA_DIR / "train.csv"                    # 스터디 레이블 + Report
+TEST_CSV = DATA_DIR / "test.csv"                      # StudyInstanceUID 만
+TRAIN_SERIES_CSV = DATA_DIR / "train_series.csv"      # 시리즈 메타데이터
+TEST_SERIES_CSV = DATA_DIR / "test_series.csv"
 SAMPLE_SUBMISSION_CSV = DATA_DIR / "sample_submission.csv"
-TRAIN_IMAGES_DIR = DATA_DIR / "train_images"   # DICOM: Kaggle에만 존재
-TEST_IMAGES_DIR = DATA_DIR / "test_images"
+
+# DICOM: Kaggle에만 존재. <study_uid>/<series_uid>/<instance_uid>.dcm
+TRAIN_SERIES_DIR = DATA_DIR / "train_series"
+TEST_SERIES_DIR = DATA_DIR / "test_series"
+
+
+def series_dir(study_uid: str, series_uid: str, train: bool = True) -> Path:
+    """한 시리즈의 DICOM 디렉터리."""
+    root = TRAIN_SERIES_DIR if train else TEST_SERIES_DIR
+    return root / study_uid / series_uid
 
 # --- 산출물 ---
 SUBMISSION_CSV = OUTPUT_DIR / "submission.csv"

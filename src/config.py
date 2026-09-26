@@ -16,11 +16,24 @@ from paths import SAMPLE_SUBMISSION_CSV
 # ---------------------------------------------------------------------------
 # 레이블 정의
 # ---------------------------------------------------------------------------
-# TODO: kaggle.json 인증 후 `python scripts/sync_labels.py`를 실행하면
-#       sample_submission.csv에서 아래 두 값을 자동으로 채워준다.
-#       한 번 확정한 뒤에는 절대 순서를 바꾸지 말 것.
-ID_COL: str = ""
-LABELS: tuple[str, ...] = ()
+# sample_submission.csv 헤더에서 확정한 순서 (2026-09-26)
+# `python scripts/sync_labels.py` 로 재생성되지만 이미 확정됐으므로 바꾸지 말 것
+# 제출 직전 verify_labels() 가 이 순서를 sample_submission.csv 와 대조한다
+ID_COL: str = "StudyInstanceUID"
+LABELS: tuple[str, ...] = (
+    "ACL",
+    "MCL",
+    "Medial Meniscus",
+    "Lateral Meniscus",
+    "Medial OA",
+    "Lateral OA",
+    "PF OA",
+    "Effusion",
+    "Synovitis",
+    "Baker's",
+    "Contusion",
+    "Fracture",
+)
 
 N_CLASSES = len(LABELS)
 
