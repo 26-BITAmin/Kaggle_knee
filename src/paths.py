@@ -20,10 +20,31 @@ def on_kaggle() -> bool:
 
 IS_KAGGLE = on_kaggle()
 
+def _find_competition_dir(input_root: Path) -> Path:
+    """대회 데이터 디렉터리를 런타임에 찾는다.
+
+    경로를 하드코딩하면 안 된다. 커널에서 대회 데이터가
+    /kaggle/input/competitions/<slug>/ 아래에 놓이는 경우가 보고됐다
+    (디스커션 735854). 후보를 순서대로 보고 train.csv 가 있는 곳을 고른다.
+    """
+    candidates = [
+        input_root / COMP_SLUG,
+        input_root / "competitions" / COMP_SLUG,
+    ]
+    for c in candidates:
+        if (c / "train.csv").exists():
+            return c
+    # 얕은 깊이에서만 탐색한다. train_series/ 를 훑으면 끝나지 않는다.
+    for d in sorted(input_root.glob("*/")) + sorted(input_root.glob("*/*/")):
+        if (d / "train.csv").exists() and (d / "train_series").exists():
+            return d
+    return candidates[0]
+
+
 if IS_KAGGLE:
     ROOT = Path("/kaggle")
     INPUT_ROOT = ROOT / "input"
-    DATA_DIR = INPUT_ROOT / COMP_SLUG
+    DATA_DIR = _find_competition_dir(INPUT_ROOT)
     OUTPUT_DIR = ROOT / "working"
 else:
     ROOT = Path(__file__).resolve().parents[1]
@@ -57,9 +78,25 @@ SUBMISSION_CSV = OUTPUT_DIR / "submission.csv"
 OOF_CSV = OUTPUT_DIR / "oof.csv"
 
 
-def kaggle_input(dataset_name: str) -> Path:
-    """추가로 붙인 Kaggle 데이터셋(사전학습 가중치 등) 경로."""
-    return INPUT_ROOT / dataset_name
+def kaggle_input(dataset_name: str, owner: str | None = None) -> Path:
+    """추가로 붙인 Kaggle 데이터셋(사전학습 가중치 등) 경로.
+
+    평평한 /kaggle/input/<name> 과 /kaggle/input/datasets/<owner>/<name>
+    둘 다 나타날 수 있다 (디스커션 735854). 존재하는 쪽을 돌려준다.
+    """
+    flat = INPUT_ROOT / dataset_name
+    if flat.exists() or owner is None:
+        nested = INPUT_ROOT / "datasets" / (owner or "") / dataset_name
+        return flat if flat.exists() or owner is None else nested
+    nested = INPUT_ROOT / "datasets" / owner / dataset_name
+    return nested if nested.exists() else flat
+
+
+# 손상된 DICOM - 캐시 빌드 시 건너뛰거나 try/except 로 감쌀 것 (디스커션 737163, 738708)
+CORRUPT_STUDIES = (
+    "1.2.826.0.1.3680043.8.498.34685905030370793639196564723935583035",
+    "1.2.826.0.1.3680043.8.498.37833587429731221455928642963031995680",
+)
 
 
 def describe() -> str:
