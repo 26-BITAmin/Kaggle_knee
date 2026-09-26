@@ -16,6 +16,15 @@ if ! grep -q '"enable_internet": *false' "$META"; then
   exit 1
 fi
 
+# 안전장치: 커널은 Kaggle 의 knee-src 를 읽는다.
+# 로컬 src/ 를 고치고 push_src.sh 를 안 돌리면 옛날 코드로 조용히 돈다.
+if grep -q "knee-src" "$META"; then
+  "$PY" "$ROOT/scripts/check_src_sync.py" || {
+    echo "[!] src 가 동기화되지 않았다. 중단."
+    exit 1
+  }
+fi
+
 USER="$("$PY" "$ROOT/scripts/_kaggle_user.py")"
 
 # 메타데이터의 placeholder username을 실제 계정으로 치환
