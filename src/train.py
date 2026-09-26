@@ -180,7 +180,7 @@ def run(cache_root: str, cfg: TrainConfig, mcfg: M.ModelConfig | None = None) ->
                 opt.zero_grad(set_to_none=True)
                 sched.step()
 
-            run_loss += float(loss) * cfg.accum
+            run_loss += float(loss.detach()) * cfg.accum
             nb += 1
 
         p, yv, studies = predict(net, valid_loader, device, cfg.amp)
