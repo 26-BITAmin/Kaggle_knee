@@ -33,7 +33,10 @@ import json, sys
 meta_path, user = sys.argv[1], sys.argv[2]
 meta = json.load(open(meta_path))
 meta["id"] = f"{user}/{meta['id'].split('/', 1)[1]}"
-meta["dataset_sources"] = [f"{user}/{d.split('/', 1)[1]}" for d in meta.get("dataset_sources", [])]
+for key in ("dataset_sources", "kernel_sources", "model_sources"):
+    meta[key] = [f"{user}/{d.split('/', 1)[1]}" for d in meta.get(key, [])]
+    if meta[key]:
+        print(f"[+] {key} = {meta[key]}")
 json.dump(meta, open(meta_path, "w"), indent=2, ensure_ascii=False)
 open(meta_path, "a").write("\n")
 print(f"[+] id = {meta['id']}")
