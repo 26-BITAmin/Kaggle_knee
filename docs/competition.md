@@ -116,6 +116,67 @@ CoAtNet 기준 40분 → 10분 이하로 줄인 사례 (디스커션 743374)
 - autocast 없이 fp16 가중치 + half 입력: T4에서 2.08배
 - uint8로 GPU 전송 후 device에서 정규화, pinned memory, persistent workers
 
+## 규칙 - 외부 데이터와 도구
+
+### 판독문을 외부 LLM 에 보내도 되는가 - **허용**
+
+호스트 공식 입장 (디스커션 733965, 규칙 2.6.b)
+
+> submitting Competition Data, including report text, to an external LLM or API
+> for inference or other computational processing (for example, extracting labels
+> from reports) will not, by itself, be considered prohibited PRIVATE SHARING
+
+단서는 두 가지다
+
+- 서비스가 모든 참가자에게 합리적으로 접근 가능할 것
+- 비용이 최소일 것
+
+호스트가 특정 서비스의 접근성과 비용을 판단할 권한을 유보하고 있다
+
+### 다른 참가자의 공개 데이터셋을 써도 되는가 - **허용**
+
+금지되는 것은 **비공개 공유**다
+
+> The PRIVATE SHARING restriction is intended to prohibit sharing Competition Data,
+> code, or competition-specific work product with other participants, teams, or
+> third parties for collaboration or competitive use outside the registered Team
+
+Kaggle 에 전체 공개된 데이터셋은 반대 경우다
+규칙이 요구하는 "equally accessible to all participants at no cost" 를 만족한다
+
+우리가 쓰는 것
+
+| 데이터셋 | 라이선스 | 용도 |
+|---|---|---|
+| `stevenleehans/rsna-knee-llm-report-labels` | CC0-1.0 | 학습 타깃 (v4_blend) |
+
+### 판정 기준은 "누구나 같은 조건으로 접근 가능한가"
+
+호스트가 실제로 **불허**한 사례 (734109)
+
+> KneeCoT: 기관과의 공식 데이터 사용 동의가 필요해서, 동의를 받을 수 있는
+> 참가자와 없는 참가자 사이에 불공정이 생긴다
+
+| 대상 | 접근 조건 | 판정 |
+|---|---|---|
+| 공개 Kaggle 데이터셋 (CC0) | 계정만 있으면 누구나 | 문제없음 |
+| KneeCoT | 기관 동의서 필요 | **불허** (호스트 확인) |
+| Stanford MRNet, OAI | 등록 필요 | 질의 중 (735497, 741819) |
+
+### 우승자 공개 의무와 라이선스 충돌
+
+규칙 2.8.a 는 우승자에게 학습/추론 코드와 가중치 공개를 요구한다
+남의 자산에 기반했으면 그 라이선스가 걸린다
+
+- 우리가 쓰는 레이블은 **CC0-1.0** 이라 제약이 없다
+- **RadImageNet 은 CC-BY-NC-SA-4.0 이다** - 공개 의무와 충돌 가능성이 제기됐다 (735121)
+  Synovitis 개선용으로 검토할 때 라이선스를 먼저 확인할 것 (737566)
+- DINOv3 도 별도 라이선스가 있고, 등록 여부 질의가 있었다 (733313)
+- 재배포 금지 가중치와 2.8.a 의 충돌은 여러 스레드에서 다룬다 (739758, 741212, 743420)
+- Apache-2.0 사전학습 모델과 우승자 라이선스 관계 질의도 있다 (739905)
+
+> 우리는 DINOv2 (Apache-2.0 계열 timm 배포) 를 쓴다
+
 ## 주의사항
 
 - 커널 `model_sources` / `kernel_sources` 누락 시 앙상블 멤버가 조용히 빠진다

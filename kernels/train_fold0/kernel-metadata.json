@@ -1,5 +1,5 @@
 {
-  "id": "kaggle-username/knee-train-fold0",
+  "id": "hyejinkwak/knee-train-fold0",
   "title": "knee-train-fold0",
   "code_file": "train.ipynb",
   "language": "python",
@@ -10,15 +10,15 @@
   "enable_tpu": false,
   "enable_internet": false,
   "dataset_sources": [
-    "kaggle-username/knee-src",
-    "kaggle-username/knee-dinov2-weights",
+    "hyejinkwak/knee-src",
+    "hyejinkwak/knee-dinov2-weights",
     "stevenleehans/rsna-knee-llm-report-labels"
   ],
   "competition_sources": [
     "rsna-knee-abnormality-detection"
   ],
   "kernel_sources": [
-    "kaggle-username/knee-cache-build"
+    "hyejinkwak/knee-cache-build"
   ],
   "model_sources": []
 }
