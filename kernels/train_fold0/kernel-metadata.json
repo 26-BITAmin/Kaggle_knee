@@ -10,11 +10,15 @@
   "enable_tpu": false,
   "enable_internet": false,
   "dataset_sources": [
-    "kaggle-username/knee-src"
+    "kaggle-username/knee-src",
+    "kaggle-username/knee-dinov2-weights",
+    "stevenleehans/rsna-knee-llm-report-labels"
   ],
   "competition_sources": [
     "rsna-knee-abnormality-detection"
   ],
-  "kernel_sources": [],
+  "kernel_sources": [
+    "kaggle-username/knee-cache-build"
+  ],
   "model_sources": []
 }

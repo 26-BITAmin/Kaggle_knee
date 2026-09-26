@@ -33,8 +33,18 @@ import json, sys
 meta_path, user = sys.argv[1], sys.argv[2]
 meta = json.load(open(meta_path))
 meta["id"] = f"{user}/{meta['id'].split('/', 1)[1]}"
+
+PLACEHOLDER = "kaggle-username"
+
+
+def own(ref):
+    """placeholder 소유자만 실제 계정으로 바꾼다. 남의 공개 데이터셋은 건드리지 않는다."""
+    owner, _, name = ref.partition("/")
+    return f"{user}/{name}" if owner == PLACEHOLDER else ref
+
+
 for key in ("dataset_sources", "kernel_sources", "model_sources"):
-    meta[key] = [f"{user}/{d.split('/', 1)[1]}" for d in meta.get(key, [])]
+    meta[key] = [own(d) for d in meta.get(key, [])]
     if meta[key]:
         print(f"[+] {key} = {meta[key]}")
 json.dump(meta, open(meta_path, "w"), indent=2, ensure_ascii=False)
