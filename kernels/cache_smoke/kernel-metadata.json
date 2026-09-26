@@ -1,0 +1,20 @@
+{
+  "id": "hyejinkwak/knee-cache-smoke",
+  "title": "knee-cache-smoke",
+  "code_file": "cache_smoke.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_tpu": false,
+  "enable_internet": false,
+  "dataset_sources": [
+    "hyejinkwak/knee-src",
+    "hyejinkwak/knee-dicom-wheels"
+  ],
+  "competition_sources": [
+    "rsna-knee-abnormality-detection"
+  ],
+  "kernel_sources": [],
+  "model_sources": []
+}

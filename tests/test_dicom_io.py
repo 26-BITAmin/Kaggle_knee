@@ -35,10 +35,44 @@ check("FS",   D.fat_suppressed(DS(SeriesDescription="SAG PD FS")), True)
 check("STIR", D.fat_suppressed(DS(SeriesDescription="COR STIR")), True)
 check("없음", D.fat_suppressed(DS(SeriesDescription="SAG T1 TSE")), False)
 
+print("=== UNK 줄이기 (v3 보강) ===")
+# TR 이 없고 TE 만 있는 경우 - 예전에는 UNK 였다
+check("TR없음 TE김->T2",  D.weighting(DS(SeriesDescription="knee", EchoTime=80)), "T2")
+check("TR없음 TE짧->PD",  D.weighting(DS(SeriesDescription="knee", EchoTime=20)), "PD")
+check("STIR 이름",        D.weighting(DS(SeriesDescription="COR STIR")), "T2")
+check("TIRM 이름",        D.weighting(DS(SeriesDescription="SAG TIRM")), "T2")
+check("반전회복 폴백",     D.weighting(DS(SeriesDescription="knee", ScanningSequence="IR")), "T2")
+check("아무것도 없음",     D.weighting(DS(SeriesDescription="knee")), "UNK")
+check("T1W 표기",         D.weighting(DS(SeriesDescription="SAG T1W TSE")), "T1")
+check("PDW 표기",         D.weighting(DS(SeriesDescription="SAG PDW FS")), "PD")
+
+print("=== 지방억제 보강 ===")
+check("TIRM",        D.fat_suppressed(DS(SeriesDescription="SAG TIRM")), True)
+check("짧은 TI",      D.fat_suppressed(DS(SeriesDescription="knee", ScanningSequence="IR", InversionTime=150)), True)
+check("긴 TI(FLAIR)", D.fat_suppressed(DS(SeriesDescription="knee", ScanningSequence="IR", InversionTime=2500)), False)
+
 print("=== 슬롯 배정 ===")
 check("SAG_FLUID_FS", D.slot_of(DS(SeriesDescription="SAG PD FS", ImageOrientationPatient=[0,1,0,0,0,-1])), "SAG_FLUID_FS")
 check("COR_T1",       D.slot_of(DS(SeriesDescription="COR T1", ImageOrientationPatient=[1,0,0,0,0,-1])), "COR_T1")
-check("해당없음",      D.slot_of(DS(SeriesDescription="AX T1", ImageOrientationPatient=[1,0,0,0,1,0])), None)
+check("평면 불명은 배정 안 함", D.slot_of(DS(SeriesDescription="AX T1")), None)
+
+print("=== EXTRA 슬롯 (8칸 설계) ===")
+SAG = [0,1,0,0,0,-1]; COR = [1,0,0,0,0,-1]; AX = [1,0,0,0,1,0]
+# 앞 6칸에 자리가 있는 것은 EXTRA 로 가면 안 된다
+check("관상 T1 -> COR_T1",   D.slot_of(DS(SeriesDescription="COR T1", ImageOrientationPatient=COR)), "COR_T1")
+check("시상 T1 -> SAG_T1",   D.slot_of(DS(SeriesDescription="SAG T1", ImageOrientationPatient=SAG)), "SAG_T1")
+# 앞 6칸에 자리가 없는 것만 EXTRA
+check("축상 T1 -> T1_EXTRA",      D.slot_of(DS(SeriesDescription="AX T1", ImageOrientationPatient=AX)), "T1_EXTRA")
+check("지방억제 T1 -> T1_EXTRA",   D.slot_of(DS(SeriesDescription="SAG T1 FS", ImageOrientationPatient=SAG)), "T1_EXTRA")
+check("관상 PD 비억제 -> FLUID_NOFS_EXTRA",
+      D.slot_of(DS(SeriesDescription="COR PD", ImageOrientationPatient=COR)), "FLUID_NOFS_EXTRA")
+check("축상 T2 비억제 -> FLUID_NOFS_EXTRA",
+      D.slot_of(DS(SeriesDescription="AX T2", ImageOrientationPatient=AX)), "FLUID_NOFS_EXTRA")
+check("시상 PD 비억제 -> SAG_FLUID_NOFS (EXTRA 아님)",
+      D.slot_of(DS(SeriesDescription="SAG PD", ImageOrientationPatient=SAG)), "SAG_FLUID_NOFS")
+check("슬롯 8개", len(D.SLOTS), 8)
+check("EXTRA 2개", len(D.EXTRA_SLOTS), 2)
+check("앞 6칸 고정", D.FIXED_SLOTS[-1], "SAG_T1")
 
 print("=== 슬라이스 순서 (핵심) ===")
 iop = [0,1,0,0,0,-1]   # sagittal, 법선 = -x

@@ -25,9 +25,9 @@ _FS_RX = re.compile(
     r"\b(fs|fat[\s_-]*sat|fatsat|spair|spir|stir|spectral|chemsat|dixon|frfse[\s_-]*fs)\b",
     re.I,
 )
-_T1_RX = re.compile(r"\bt1\b", re.I)
-_T2_RX = re.compile(r"\bt2\b", re.I)
-_PD_RX = re.compile(r"\b(pd|proton)\b", re.I)
+_T1_RX = re.compile(r"\b(t1|t1w|t1_|tfl|mprage)\b", re.I)
+_T2_RX = re.compile(r"\b(t2|t2w|t2_|stir|tirm|flair)\b", re.I)
+_PD_RX = re.compile(r"\b(pd|pdw|pd_|proton|dp|dens)\b", re.I)
 
 
 def _text(ds, *tags: str) -> str:
@@ -54,6 +54,7 @@ def weighting(ds) -> str:
 
     tr = float(getattr(ds, "RepetitionTime", 0) or 0)
     te = float(getattr(ds, "EchoTime", 0) or 0)
+
     if is_gre:
         return "T2" if te >= 15 else "T1"
     if tr and tr <= 800:
@@ -62,6 +63,15 @@ def weighting(ds) -> str:
         return "T2"
     if tr:
         return "PD"
+
+    # TR 이 없는 경우. TE 만으로도 유체 감응 여부는 가른다.
+    # 슬롯 배정에는 T2 와 PD 의 구분이 필요 없다 (둘 다 fluid) 는 점을 이용한다.
+    if te:
+        return "T2" if te >= 60 else "PD"
+
+    # 반전 회복(STIR/TIRM)은 유체 감응이다
+    if "IR" in seq:
+        return "T2"
     return "UNK"
 
 
@@ -73,8 +83,13 @@ def fat_suppressed(ds) -> bool:
     opts = str(getattr(ds, "ScanOptions", "") or "").upper()
     if "FS" in opts.split("\\") or "SAT" in opts:
         return True
-    prep = str(getattr(ds, "ScanningSequence", "") or "")
-    return "IR" in prep and "stir" in desc.lower()
+    # STIR / TIRM 은 반전 회복으로 지방을 억제한다
+    if re.search(r"\b(stir|tirm)\b", desc, re.I):
+        return True
+    # 짧은 TI 를 쓰는 반전 회복
+    seq = str(getattr(ds, "ScanningSequence", "") or "")
+    ti = float(getattr(ds, "InversionTime", 0) or 0)
+    return "IR" in seq and 0 < ti <= 250
 
 
 def plane(ds) -> str:
@@ -89,24 +104,62 @@ def plane(ds) -> str:
 
 
 def slot_of(ds) -> str | None:
-    """6개 슬롯 중 어디에 속하는지. 해당 없으면 None."""
+    """8개 슬롯 중 어디에 속하는지. 해당 없으면 None.
+
+    앞 6칸은 평면 고정이다 (A안). 뒤 2칸은 앞 6칸이 못 담는 것만 받는다.
+
+    촬영 프로토콜이 기관마다 달라서 평면을 고정하면 빈칸이 많이 생긴다
+    (T1 보유 스터디는 92.6% 인데 시상면 T1 로 좁히면 40.4%).
+    EXTRA 칸을 두면 학습 시점에 평면 통합 설계(C안)를 코드로 만들 수 있다
+
+        T1_1 = COR_T1 or SAG_T1 or T1_EXTRA
+
+    앞 6칸과 픽셀이 겹치지 않으므로 중복 디코드가 없다.
+    """
     p = plane(ds)
     w = weighting(ds)
     fs = fat_suppressed(ds)
     fluid = w in ("T2", "PD")
 
-    if fluid and fs:
-        return {"Sagittal": "SAG_FLUID_FS", "Coronal": "COR_FLUID_FS",
-                "Axial": "AX_FLUID_FS"}.get(p)
-    if fluid and not fs and p == "Sagittal":
-        return "SAG_FLUID_NOFS"
-    if w == "T1" and not fs:
-        return {"Coronal": "COR_T1", "Sagittal": "SAG_T1"}.get(p)
+    if fluid:
+        if fs:
+            return {"Sagittal": "SAG_FLUID_FS", "Coronal": "COR_FLUID_FS",
+                    "Axial": "AX_FLUID_FS"}.get(p)
+        if p == "Sagittal":
+            return "SAG_FLUID_NOFS"
+        if p in ("Coronal", "Axial"):
+            return "FLUID_NOFS_EXTRA"
+        return None
+
+    if w == "T1":
+        if not fs:
+            fixed = {"Coronal": "COR_T1", "Sagittal": "SAG_T1"}.get(p)
+            if fixed:
+                return fixed
+        # 축상면 T1, 또는 지방억제 T1 - 앞 6칸에 자리가 없다
+        return "T1_EXTRA" if p != "UNK" else None
+
     return None
 
 
+# 앞 6칸: 평면 고정 (A안 그대로)
+# 뒤 2칸: 앞 6칸이 못 담는 것만 (C안을 학습 시점에 구성하기 위함)
 SLOTS = ("SAG_FLUID_FS", "COR_FLUID_FS", "AX_FLUID_FS",
-         "SAG_FLUID_NOFS", "COR_T1", "SAG_T1")
+         "SAG_FLUID_NOFS", "COR_T1", "SAG_T1",
+         "T1_EXTRA", "FLUID_NOFS_EXTRA")
+
+FIXED_SLOTS = SLOTS[:6]
+EXTRA_SLOTS = SLOTS[6:]
+
+
+def merged_t1_order() -> tuple[str, ...]:
+    """C안의 T1_1 을 고를 우선순위. 보유율이 높은 순이다."""
+    return ("COR_T1", "SAG_T1", "T1_EXTRA")
+
+
+def merged_fluid_nofs_order() -> tuple[str, ...]:
+    """C안의 FLUID_NOFS 를 고를 우선순위."""
+    return ("SAG_FLUID_NOFS", "FLUID_NOFS_EXTRA")
 
 
 # ---------------------------------------------------------------------------
