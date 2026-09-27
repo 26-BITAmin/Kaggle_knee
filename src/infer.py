@@ -35,6 +35,7 @@ class InferConfig:
     batch_size: int = 8
     amp: bool = True
     tta_slice_flip: bool = False     # 슬라이스 순서 뒤집기 TTA
+    n_groups: int = 3                # 9슬라이스 / 3장 = 3그룹, 전부 돌려 평균
     num_workers: int = 2
 
 
@@ -98,10 +99,12 @@ def predict_studies(nets: list[M.KneeModel], studies: list[str], cfg: InferConfi
 
         for mi, net in enumerate(nets):
             with torch.autocast("cuda", enabled=cfg.amp and device.type == "cuda"):
-                out = net(img, msk)
+                # 학습은 매 스텝 한 그룹만 쓰지만 추론은 전부 돌려 평균한다
+                out = sum(net(img, msk, group=g) for g in range(cfg.n_groups)) / cfg.n_groups
                 if cfg.tta_slice_flip:
-                    out = out + net(torch.flip(img, dims=[2]), msk)
-                    out = out / 2
+                    flip = sum(net(torch.flip(img, dims=[2]), msk, group=g)
+                               for g in range(cfg.n_groups)) / cfg.n_groups
+                    out = (out + flip) / 2
             preds[mi].append(torch.sigmoid(out.float()).cpu().numpy())
 
         done = start + len(chunk)

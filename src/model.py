@@ -61,8 +61,9 @@ class ModelConfig:
     slices_per_group: int = 3        # 인접 3장을 3채널로
     n_labels: int = 12
     img_size: int = 224              # DINOv2 기본은 518 이다. 캐시가 224 라 맞춰야 한다
-    dropout: float = 0.1
-    query_heads: int = 8
+    dropout: float = 0.2             # 루트와 같은 값
+    head_hidden: int = 256           # 384 -> 256 축소
+    query_heads: int = 8             # 미사용 (SlotHead 로 교체)
     slot_prior: bool = True          # 해부학 사전 지식으로 attention 을 초기 편향
     # DINOv2-S 는 블록 12개. 마지막 몇 개만 연다
     # 전체(99)를 열고 lr 1e-4 로 돌렸더니 사전학습 특징이 파괴됐다
@@ -139,50 +140,44 @@ class Encoder(nn.Module):
         return self.backbone(x)
 
 
-class LabelQueryHead(nn.Module):
-    """12개 레이블 쿼리가 슬롯 임베딩을 가로질러 attention 한다.
+class SlotHead(nn.Module):
+    """소견별 attention 으로 슬롯 임베딩을 모은다.
 
-    빈 슬롯은 key_padding_mask 로 제외한다.
-    슬롯이 비는 비율이 기관마다 다르므로 (docs/eda.md) 0 을 학습시키면
-    빈칸 패턴 자체가 기관 힌트가 된다.
+    루트 노트북(0.891)의 SlotHead 와 같은 구조다. 그 주석이 왜 단순해야 하는지 설명한다
+
+    > The aggregation is deliberately this simple. With a study-level label there is
+    > no signal telling the model which part of a study matters, so extra attention
+    > parameters below the slot level would have nothing to learn from and would
+    > spend their capacity fitting noise.
+
+    우리가 처음 쓴 nn.MultiheadAttention 은 Q/K/V 투영 3개로 토큰 6개를 봤다
+    스터디 단위 레이블뿐이라 그걸 배울 신호가 없고, 실제로 학습이 불안정했다
+    (loss 가 오르내리고 val_auc 가 0.54~0.70 을 오감)
+
+    slot_prior 는 **고정 buffer** 다. 해부학은 데이터가 뒤집을 대상이 아니다.
+    exp(0.55) ~ 1.73 이라 선호 슬롯에 1.73배 가중이 붙되 제외하지는 않는다.
     """
 
-    def __init__(self, dim: int, n_labels: int, heads: int = 8, dropout: float = 0.1,
-                 prior: torch.Tensor | None = None):
+    def __init__(self, dim: int, n_slot: int, n_out: int, hidden: int = 256,
+                 dropout: float = 0.2, prior: torch.Tensor | None = None):
         super().__init__()
-        self.query = nn.Parameter(torch.randn(n_labels, dim) * 0.02)
-        # (n_labels, n_slots) attention 편향. 사전 지식으로 초기화하되 학습한다
-        self.attn_bias = nn.Parameter(prior.clone()) if prior is not None else None
-        self.attn = nn.MultiheadAttention(dim, heads, dropout=dropout, batch_first=True)
-        self.norm = nn.LayerNorm(dim)
+        self.proj = nn.Sequential(nn.LayerNorm(dim), nn.Linear(dim, hidden), nn.GELU())
+        self.slot_emb = nn.Parameter(torch.randn(n_slot, hidden) * 0.02)
+        self.query = nn.Parameter(torch.randn(n_out, hidden) * 0.02)
         self.drop = nn.Dropout(dropout)
-        self.out = nn.Parameter(torch.zeros(n_labels, dim))
-        self.bias = nn.Parameter(torch.zeros(n_labels))
-        nn.init.trunc_normal_(self.out, std=0.02)
+        self.out = nn.Linear(hidden, n_out)
+        self.hidden = hidden
+        self.register_buffer("slot_prior",
+                             prior if prior is not None else torch.zeros(n_out, n_slot))
 
-    def forward(self, tokens: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-        """tokens (B, S, D), mask (B, S) 1=유효  ->  (B, n_labels)"""
-        b = tokens.size(0)
-        q = self.query.unsqueeze(0).expand(b, -1, -1)
-        pad = mask < 0.5
-        # 전부 빈 스터디는 없지만(검증 완료) 안전장치로 첫 칸을 열어둔다
-        allempty = pad.all(dim=1)
-        if allempty.any():
-            pad = pad.clone()
-            pad[allempty, 0] = False
-        # 빈 슬롯과 사전 편향을 하나의 float 마스크로 합친다.
-        # bool 과 float 을 섞으면 경고가 뜨고 향후 동작이 바뀔 수 있다.
-        m = torch.zeros(b, 1, tokens.size(1), dtype=tokens.dtype, device=tokens.device)
-        m = m.masked_fill(pad.unsqueeze(1), float("-inf"))      # (B, 1, S)
-        if self.attn_bias is not None:
-            m = m + self.attn_bias.unsqueeze(0)                 # (B, L, S) 로 브로드캐스트
-        else:
-            m = m.expand(-1, q.size(1), -1)
-        heads = self.attn.num_heads
-        m = m.unsqueeze(1).expand(-1, heads, -1, -1).reshape(b * heads, q.size(1), -1)
-        z, _ = self.attn(q, tokens, tokens, attn_mask=m, need_weights=False)
-        z = self.drop(self.norm(z))
-        return (z * self.out.unsqueeze(0)).sum(-1) + self.bias
+    def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        """x (B, S, D), mask (B, S) 1=유효  ->  (B, n_out)"""
+        h = self.proj(x) + self.slot_emb
+        att = torch.einsum("bsh,oh->bos", h, self.query) / self.hidden ** 0.5
+        att = att + self.slot_prior.unsqueeze(0)
+        att = att.masked_fill(mask.unsqueeze(1) < 0.5, -1e4).softmax(-1)
+        ctx = self.drop(torch.einsum("bos,bsh->boh", att, h))
+        return (ctx * self.out.weight.unsqueeze(0)).sum(-1) + self.out.bias
 
 
 class KneeModel(nn.Module):
@@ -193,39 +188,47 @@ class KneeModel(nn.Module):
         d = self.encoder.dim
 
         self.n_groups = cfg.n_slices // cfg.slices_per_group
-        # 슬롯 정체성을 알려준다. 같은 칸이라도 시상/관상이 섞일 수 있다 (C안)
-        self.slot_emb = nn.Parameter(torch.zeros(cfg.n_slots, d))
-        nn.init.trunc_normal_(self.slot_emb, std=0.02)
-        self.group_pool = nn.Linear(d, 1)
         prior = None
         if cfg.slot_prior:
             import config as _cfg
             prior = build_slot_prior(list(_cfg.LABELS), cfg.n_slots)
-        self.head = LabelQueryHead(d, cfg.n_labels, cfg.query_heads, cfg.dropout,
-                                   prior=prior)
+        # slot_emb 은 SlotHead 안에 있다 (루트와 같은 위치)
+        self.head = SlotHead(d, cfg.n_slots, cfg.n_labels,
+                             hidden=cfg.head_hidden, dropout=cfg.dropout, prior=prior)
 
-    def forward(self, image: torch.Tensor, slot_mask: torch.Tensor) -> torch.Tensor:
-        """image (B, S, 9, H, W) uint8, slot_mask (B, S) -> (B, 12) 로짓"""
+    def forward(self, image: torch.Tensor, slot_mask: torch.Tensor,
+                group: int | None = None) -> torch.Tensor:
+        """image (B, S, 9, H, W) uint8, slot_mask (B, S) -> (B, 12) 로짓
+
+        9슬라이스를 3장씩 3그룹으로 나눈 뒤 **한 그룹만** 인코더에 넣는다.
+
+        학습에서는 매 스텝 무작위로 고른다. 그 자체가 증강이 되고
+        스터디당 인코더 입력이 18장에서 6장으로 줄어 3배 빨라진다 (루트와 같다)
+
+        추론에서는 group 을 지정해 여러 그룹을 돌리고 평균할 수 있다.
+        """
         b, s, n, h, w = image.shape
         g, c = self.n_groups, self.cfg.slices_per_group
 
-        x = image.view(b * s * g, c, h, w)
-        e = self.encoder(x).view(b, s, g, -1)                 # (B, S, G, D)
+        x = image.view(b, s, g, c, h, w)
+        if group is None:
+            group = int(torch.randint(g, (1,)).item())
+        x = x[:, :, group]                                    # (B, S, C, H, W)
 
-        # 그룹 3개를 attention pooling 으로 합친다
-        a = torch.softmax(self.group_pool(e).squeeze(-1), dim=-1)   # (B, S, G)
-        tok = (e * a.unsqueeze(-1)).sum(2)                    # (B, S, D)
-        tok = tok + self.slot_emb.unsqueeze(0)
-        tok = tok * slot_mask.unsqueeze(-1)
-
+        e = self.encoder(x.reshape(b * s, c, h, w)).view(b, s, -1)   # (B, S, D)
+        tok = e * slot_mask.unsqueeze(-1)
         return self.head(tok, slot_mask)
 
 
 def masked_bce(logits: torch.Tensor, y: torch.Tensor, w: torch.Tensor) -> torch.Tensor:
     """판독문 신뢰도를 가중으로 쓰는 soft BCE.
 
-    미언급 셀은 w 가 낮다 (labels.LabelConfig.w_unaddressed).
-    마스킹(0)이 아니라 저가중인 이유는 docs/labels.md 참고.
+    **가중평균이 아니라 단순 평균이다** (루트 노트북과 같다)
+
+        (BCE * w).mean()        <- 가중이 낮은 셀은 기여 자체가 작아진다
+        (BCE * w).sum() / w.sum()  <- 정규화하면 저가중 셀의 상대적 영향이 되살아난다
+
+    침묵 셀이 전체의 19% 인데 정규화하면 그 노이즈가 다시 커진다.
     """
     loss = F.binary_cross_entropy_with_logits(logits, y, reduction="none")
-    return (loss * w).sum() / w.sum().clamp_min(1.0)
+    return (loss * w).mean()

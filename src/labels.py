@@ -30,8 +30,10 @@ TABLE = "llm_labels_v4_blend.csv"
 @dataclass
 class LabelConfig:
     table: str = TABLE
-    # 미언급 셀의 손실 가중. 0 이면 마스킹, 1 이면 동등 취급
-    w_unaddressed: float = 0.3
+    # 미언급 셀의 손실 가중.
+    # 루트 노트북은 침묵에 conf 0.05 를 준다 ("silence sits above asserted-negative")
+    # 우리가 쓰던 0.3 은 6배 높아 전체 셀의 19% 인 노이즈를 과하게 학습했다
+    w_unaddressed: float = 0.05
     # 타깃을 이진화하지 않고 soft 로 쓴다 (판독문은 등급이 있는 신호다)
     soft_targets: bool = True
     # soft 타깃을 이 범위로 눌러 과신을 막는다

@@ -41,7 +41,7 @@ class TrainConfig:
     lr: float = 8e-6
     head_lr_mult: float = 125.0      # head 는 1e-3 (루트 노트북 LR_HEAD)
     weight_decay: float = 0.02
-    warmup_frac: float = 0.2         # 초반 발산을 막는다
+    warmup_frac: float = 0.15        # OneCycleLR pct_start (루트와 같은 값)
     num_workers: int = 4
     amp: bool = True
     grad_clip: float = 1.0
@@ -112,14 +112,18 @@ def param_groups(net: M.KneeModel, cfg: TrainConfig):
 
 
 @torch.no_grad()
-def predict(net, loader, device, amp: bool):
+def predict(net, loader, device, amp: bool, n_groups: int = 3):
+    """검증/추론은 그룹을 전부 돌려 평균한다.
+
+    학습은 매 스텝 한 그룹만 쓰지만(증강 효과), 평가에서는 정보를 다 쓰는 게 맞다.
+    """
     net.eval()
     P, Y, S = [], [], []
     for b in loader:
         img = b["image"].to(device, non_blocking=True)
         mask = b["slot_mask"].to(device, non_blocking=True)
         with torch.autocast("cuda", enabled=amp and device.type == "cuda"):
-            out = net(img, mask)
+            out = sum(net(img, mask, group=g) for g in range(n_groups)) / n_groups
         P.append(torch.sigmoid(out.float()).cpu().numpy())
         if "y" in b:
             Y.append(b["y"].numpy())
@@ -148,11 +152,12 @@ def run(cache_root: str, cfg: TrainConfig, mcfg: M.ModelConfig | None = None) ->
           f"학습 파라미터 {sum(p.numel() for p in net.parameters() if p.requires_grad)/1e6:.1f}M")
 
     opt = torch.optim.AdamW(param_groups(net, cfg), weight_decay=cfg.weight_decay)
+    # OneCycleLR - 끝에서 lr 을 초기값의 1/10000 까지 떨어뜨려 수렴을 강제한다
+    # cosine 은 0 까지만 가고, 우리 실행들은 마지막까지 불안정했다
     steps = max(1, len(train_loader) // cfg.accum) * cfg.epochs
-    warm = max(1, int(steps * cfg.warmup_frac))
-    sched = torch.optim.lr_scheduler.LambdaLR(
-        opt, lambda s: s / warm if s < warm
-        else 0.5 * (1 + np.cos(np.pi * (s - warm) / max(1, steps - warm))))
+    sched = torch.optim.lr_scheduler.OneCycleLR(
+        opt, max_lr=[cfg.lr, cfg.lr * cfg.head_lr_mult],
+        total_steps=steps, pct_start=cfg.warmup_frac)
     scaler = torch.amp.GradScaler("cuda", enabled=cfg.amp and device.type == "cuda")
 
     out = Path(cfg.out_dir); out.mkdir(parents=True, exist_ok=True)
