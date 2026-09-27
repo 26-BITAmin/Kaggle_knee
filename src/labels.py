@@ -94,7 +94,7 @@ def load_gold() -> pd.DataFrame:
 
 
 def make_folds(studies: pd.Index, y: pd.DataFrame, n_folds: int = 5,
-               seed: int = 42) -> pd.Series:
+               seed: int = 42, gold: pd.Index | None = None) -> pd.Series:
     """스터디 단위 다중 레이블 층화 분할.
 
     스터디가 곧 1인 1회 검사라 그룹 분할은 필요 없다.
@@ -109,7 +109,19 @@ def make_folds(studies: pd.Index, y: pd.DataFrame, n_folds: int = 5,
     fold = np.full(len(studies), -1, dtype=int)
     counts = np.zeros((n_folds, len(L)), dtype=int)
 
-    idx = rng.permutation(len(studies))
+    # gold 스터디를 먼저 배치해 fold 마다 고르게 퍼지게 한다
+    # 58건이 한쪽으로 쏠리면 development panel 측정이 아예 안 된다
+    order_idx = list(rng.permutation(len(studies)))
+    if gold is not None:
+        gset = set(gold)
+        g = [i for i in order_idx if studies[i] in gset]
+        rest = [i for i in order_idx if studies[i] not in gset]
+        for j, i in enumerate(g):            # 라운드로빈
+            fold[i] = j % n_folds
+            counts[j % n_folds] += b[i]
+        order_idx = rest
+
+    idx = order_idx
     for i in idx:
         # 이 스터디가 가진 레이블 중 가장 희귀한 것을 기준으로 fold 를 고른다
         pos = [k for k in order if b[i, k]]

@@ -71,7 +71,7 @@ def build_loaders(cache: ds.CacheHandle, cfg: TrainConfig):
     gold = lb.load_gold()
 
     studies = [s for s in cache.index.study if s in y.index]
-    folds = lb.make_folds(pd.Index(studies), y, cfg.n_folds, cfg.seed)
+    folds = lb.make_folds(pd.Index(studies), y, cfg.n_folds, cfg.seed, gold=gold.index)
 
     tr = [s for s in studies if folds[s] != cfg.fold]
     va = [s for s in studies if folds[s] == cfg.fold]
@@ -187,9 +187,11 @@ def run(cache_root: str, cfg: TrainConfig, mcfg: M.ModelConfig | None = None) ->
         auc, per = macro_auc((yv >= 0.5).astype(int), p)
 
         # gold 패널 - 검증셋에 들어온 gold 스터디만 본다
+        # gold 는 58건뿐이라 fold 하나에 9~13건만 들어간다
+        # 표본이 작아 신뢰구간이 매우 넓지만, 방향성은 볼 수 있으므로 기록은 한다
         gmask = [i for i, s in enumerate(studies) if s in gold.index]
         gauc = float("nan")
-        if len(gmask) >= 10:
+        if len(gmask) >= 6:
             gy = gold.loc[[studies[i] for i in gmask]].values
             gauc, _ = macro_auc(gy, p[gmask])
 

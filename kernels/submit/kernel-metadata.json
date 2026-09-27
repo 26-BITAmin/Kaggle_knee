@@ -1,0 +1,22 @@
+{
+  "id": "hyejinkwak/knee-submit",
+  "title": "knee-submit",
+  "code_file": "submit.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "machine_shape": "NvidiaTeslaT4",
+  "enable_tpu": false,
+  "enable_internet": false,
+  "dataset_sources": [
+    "hyejinkwak/knee-src",
+    "hyejinkwak/knee-dicom-wheels",
+    "hyejinkwak/knee-weights"
+  ],
+  "competition_sources": [
+    "rsna-knee-abnormality-detection"
+  ],
+  "kernel_sources": [],
+  "model_sources": []
+}
