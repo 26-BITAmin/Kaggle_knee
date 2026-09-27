@@ -36,10 +36,12 @@ class TrainConfig:
     epochs: int = 8
     batch_size: int = 8
     accum: int = 2                   # 유효 배치 16
-    lr: float = 1e-4
-    head_lr_mult: float = 10.0       # 새로 만든 head 는 더 크게
-    weight_decay: float = 0.05
-    warmup_frac: float = 0.1
+    # 인코더 lr. 1e-4 는 너무 높았다 - 24 epoch 실행에서 epoch 0 이 최고였고
+    # 12개 레이블 중 10개가 학습할수록 나빠졌다 (DINOv2 특징 파괴)
+    lr: float = 8e-6
+    head_lr_mult: float = 125.0      # head 는 1e-3 (루트 노트북 LR_HEAD)
+    weight_decay: float = 0.02
+    warmup_frac: float = 0.2         # 초반 발산을 막는다
     num_workers: int = 4
     amp: bool = True
     grad_clip: float = 1.0

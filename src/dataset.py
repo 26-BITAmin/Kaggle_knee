@@ -26,6 +26,24 @@ import dicom_io
 
 
 @dataclass
+class AugConfig:
+    """기하 증강.
+
+    루트 노트북(0.891)과 같은 축을 쓴다
+      AUG_ROT_DEG 8.0 / AUG_SCALE 0.08 / AUG_SHIFT 0.05 / AUG_INTENSITY 0.10
+
+    **좌우 뒤집기는 쓰지 않는다.** Medial / Lateral 이 좌우로 정의된 타깃이라
+    뒤집으면 레이블이 바뀐다 (루트 노트북도 같은 이유로 제외한다)
+    """
+    rot_deg: float = 8.0
+    scale: float = 0.08
+    shift: float = 0.05
+    intensity: float = 0.10
+    slice_flip_p: float = 0.3      # 슬라이스 순서만 뒤집기 (해부학은 그대로)
+    p: float = 0.8                 # 기하 증강 적용 확률
+
+
+@dataclass
 class CacheHandle:
     root: Path
     meta: dict
@@ -113,7 +131,9 @@ class KneeCacheDataset(Dataset):
 
     def __init__(self, cache: CacheHandle, studies: list[str],
                  targets: pd.DataFrame | None, weights: pd.DataFrame | None,
-                 plan: str = "C", augment: bool = False, seed: int = 0):
+                 plan: str = "C", augment: bool = False, seed: int = 0,
+                 aug: AugConfig | None = None):
+        self.aug = aug or AugConfig()
         self.cache = cache
         self.plan = plan
         self.augment = augment
@@ -168,17 +188,41 @@ class KneeCacheDataset(Dataset):
         return item
 
     def _augment(self, x: np.ndarray) -> np.ndarray:
-        """가벼운 증강만 쓴다.
+        """기하 + 강도 증강. 슬롯 하나 안에서는 같은 변환을 적용한다.
 
-        좌우 뒤집기는 넣지 않는다. medial / lateral 이 좌우로 정의된 타깃이라
-        뒤집으면 레이블이 바뀐다.
+        슬라이스마다 다른 회전을 주면 인접 슬라이스의 연속성이 깨진다.
+        3슬라이스를 3채널로 묶어 쓰므로 그 연속성이 신호다.
         """
-        if self.rng.random() < 0.5:                        # 상하 뒤집기도 해부학을 깨므로 제외
-            pass
-        if self.rng.random() < 0.5:                        # 밝기/대비
-            g = self.rng.uniform(0.85, 1.15)
+        a = self.aug
+        rng = self.rng
+
+        if a.intensity > 0 and rng.random() < 0.5:
+            g = 1.0 + rng.uniform(-a.intensity, a.intensity)
             x = np.clip(x.astype(np.float32) * g, 0, 255).astype(np.uint8)
-        if self.rng.random() < 0.3:                        # 슬라이스 방향 뒤집기 (순서만)
+
+        if rng.random() < a.p:
+            try:
+                import cv2
+            except ImportError:
+                cv2 = None
+            if cv2 is not None:
+                n_slot, n_sl, h, w = x.shape
+                out = np.empty_like(x)
+                for s in range(n_slot):
+                    ang = rng.uniform(-a.rot_deg, a.rot_deg)
+                    sc = 1.0 + rng.uniform(-a.scale, a.scale)
+                    tx = rng.uniform(-a.shift, a.shift) * w
+                    ty = rng.uniform(-a.shift, a.shift) * h
+                    M = cv2.getRotationMatrix2D((w / 2, h / 2), ang, sc)
+                    M[0, 2] += tx
+                    M[1, 2] += ty
+                    for k in range(n_sl):
+                        out[s, k] = cv2.warpAffine(
+                            x[s, k], M, (w, h), flags=cv2.INTER_LINEAR,
+                            borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+                x = out
+
+        if a.slice_flip_p > 0 and rng.random() < a.slice_flip_p:
             x = x[:, ::-1]
         return np.ascontiguousarray(x)
 
