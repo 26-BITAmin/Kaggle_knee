@@ -21,6 +21,23 @@ import paths
 
 @dataclass
 class CacheConfig:
+    """캐시 구성.
+
+    커널 출력 한도가 20GB 다. 4,407 스터디 기준
+
+        224px x 8칸 x 9슬  14.8G   mm/px 0.5804   <- 1mm 구조 Nyquist 한계 초과
+        280px x 6칸 x 9슬  17.4G   mm/px 0.4643
+        336px x 6칸 x 6슬  16.7G   mm/px 0.3869   <- 루트와 같은 해상도
+
+    루트 노트북은 캐시를 RAM 에 만들고 버리므로 한도가 없다. 대신 매 실행 55분을
+    디코드에 쓴다. 그리고 예산이 빠듯하면 해상도가 아니라 슬라이스 수를 줄인다
+
+      > resolution the expensive one, so when the budget binds it is the slice
+      > count that gives way rather than the pixel grid
+
+    우리는 캐시를 파일로 재사용하므로 한도 안에서 같은 선택을 한다.
+    해상도가 DINOv2 패치 14 의 배수여야 한다 (336/14 = 24).
+    """
     slots: tuple[str, ...] = D.SLOTS
     n_slices: int = 9
     out_px: int = 224
