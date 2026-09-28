@@ -66,9 +66,11 @@ def open_cache(root: Path | str) -> CacheHandle:
     if len(shards) != meta["n_shards"]:
         raise RuntimeError(f"샤드 {len(shards)}개, 메타는 {meta['n_shards']}개")
     arrays = [np.load(f, mmap_mode="r") for f in shards]
-    if meta["slots"] != list(dicom_io.SLOTS):
+    # 336 캐시는 앞 6칸만 담는다 (출력 한도 20GB). 코드의 접두 부분집합이면 허용한다
+    all_slots = list(dicom_io.SLOTS)
+    if meta["slots"] != all_slots[: len(meta["slots"])]:
         raise RuntimeError(
-            f"캐시 슬롯이 현재 코드와 다르다\n  캐시: {meta['slots']}\n  코드: {list(dicom_io.SLOTS)}")
+            f"캐시 슬롯이 현재 코드와 다르다\n  캐시: {meta['slots']}\n  코드: {all_slots}")
     return CacheHandle(root=root, meta=meta, index=index, arrays=arrays)
 
 
@@ -116,6 +118,8 @@ def build_slot_map(cache: CacheHandle, plan: str) -> tuple[np.ndarray, np.ndarra
     for j, pref in enumerate(prefs):
         used = pick[:, :j]
         for name in pref:
+            if name not in slots:          # 336 캐시에는 EXTRA 칸이 없다
+                continue
             k = slots.index(name)
             free = (pick[:, j] < 0) & filled[:, k]
             if j > 0:                                     # 앞 칸이 이미 쓴 슬롯은 피한다

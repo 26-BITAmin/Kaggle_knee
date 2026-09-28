@@ -112,11 +112,16 @@ def param_groups(net: M.KneeModel, cfg: TrainConfig):
 
 
 @torch.no_grad()
-def predict(net, loader, device, amp: bool, n_groups: int = 3):
+def predict(net, loader, device, amp: bool, n_groups: int | None = None):
     """검증/추론은 그룹을 전부 돌려 평균한다.
 
     학습은 매 스텝 한 그룹만 쓰지만(증강 효과), 평가에서는 정보를 다 쓰는 게 맞다.
+
+    **그룹 수는 모델에서 읽는다.** 하드코딩하면 해상도를 바꿀 때 깨진다
+    (336 캐시는 슬라이스 6장이라 그룹이 2개인데 3을 요청해 IndexError 가 났다)
     """
+    if n_groups is None:
+        n_groups = net.n_groups
     net.eval()
     P, Y, S = [], [], []
     for b in loader:

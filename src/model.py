@@ -213,6 +213,10 @@ class KneeModel(nn.Module):
         x = image.view(b, s, g, c, h, w)
         if group is None:
             group = int(torch.randint(g, (1,)).item())
+        if not 0 <= group < g:
+            raise IndexError(
+                f"group {group} 이 범위 밖이다. 이 모델은 그룹이 {g}개다 "
+                f"(n_slices={n}, slices_per_group={c}). 캐시 슬라이스 수를 확인할 것")
         x = x[:, :, group]                                    # (B, S, C, H, W)
 
         e = self.encoder(x.reshape(b * s, c, h, w)).view(b, s, -1)   # (B, S, D)

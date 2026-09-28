@@ -44,7 +44,10 @@ def main() -> int:
             "num_features": int(m.num_features),
             "mean": list(m.default_cfg["mean"]), "std": list(m.default_cfg["std"]),
             "pos_embed": list(m.pos_embed.shape), "file": name}
-    (OUT / "weights_meta.json").write_text(json.dumps(meta, indent=2))
+    # 해상도마다 파일이 하나씩 생긴다. 메타도 해상도별로 남긴다.
+    # 공용 weights_meta.json 하나만 두면 마지막에 만든 것만 남아
+    # 다른 해상도 체크포인트와 짝이 어긋난다
+    (OUT / f"weights_meta_{a.img_size}.json").write_text(json.dumps(meta, indent=2))
 
     (OUT / "dataset-metadata.json").write_text(json.dumps({
         "title": "knee-dinov2-weights",
