@@ -25,6 +25,16 @@ if grep -q "knee-src" "$META"; then
   }
 fi
 
+# 안전장치: 노트북에 미정의 이름이 없는지 본다
+# 스크립트로 셀을 수정하다 내용을 잘라먹어 NameError 로 죽은 적이 있다
+NB="$DIR/$("$PY" -c "import json,sys;print(json.load(open(sys.argv[1]))['code_file'])" "$META")"
+if [ -f "$NB" ]; then
+  "$PY" "$ROOT/scripts/check_notebook.py" "$NB" || {
+    echo "[!] 노트북 검사 실패. 중단."
+    exit 1
+  }
+fi
+
 USER="$("$PY" "$ROOT/scripts/_kaggle_user.py")"
 
 # 메타데이터의 placeholder username을 실제 계정으로 치환
