@@ -102,6 +102,34 @@ def resolve_plan(plan: str) -> tuple[tuple[str, ...], ...]:
     raise ValueError(f"알 수 없는 plan: {plan}")
 
 
+def assign_slots(plan: str, cache_slots: list[str], filled: np.ndarray
+                 ) -> tuple[np.ndarray, np.ndarray]:
+    """plan 의 각 출력 칸에 캐시 슬롯을 하나씩 배정한다.
+
+    **이 함수가 유일한 배정 로직이다.** 학습(build_slot_map)과 추론(infer)이
+    같은 규칙을 써야 한다. 예전에는 같은 루프가 두 군데 복사돼 있었고,
+    336 캐시(6칸) 대응으로 한쪽만 고쳐서 추론이 전 스터디를 0 이미지로 만들었다
+
+    filled  (N, n_cache_slots) bool
+    반환    pick (N, n_out) int8, 없으면 -1 / mask (N, n_out) float32
+    """
+    prefs = resolve_plan(plan)
+    n, n_out = len(filled), len(prefs)
+    pick = np.full((n, n_out), -1, dtype=np.int8)
+
+    for j, pref in enumerate(prefs):
+        used = pick[:, :j]
+        for name in pref:
+            if name not in cache_slots:        # 6칸 캐시에는 EXTRA 가 없다
+                continue
+            k = cache_slots.index(name)
+            free = (pick[:, j] < 0) & filled[:, k]
+            if j > 0:
+                free &= ~(used == k).any(axis=1)
+            pick[free, j] = k
+    return pick, (pick >= 0).astype(np.float32)
+
+
 def build_slot_map(cache: CacheHandle, plan: str) -> tuple[np.ndarray, np.ndarray]:
     """스터디마다 각 출력 칸에 캐시의 몇 번 슬롯을 넣을지 정한다.
 
@@ -109,24 +137,9 @@ def build_slot_map(cache: CacheHandle, plan: str) -> tuple[np.ndarray, np.ndarra
       pick  (N, n_out) int8   캐시 슬롯 인덱스, 없으면 -1
       mask  (N, n_out) float32  채워졌으면 1
     """
-    prefs = resolve_plan(plan)
     slots = cache.slots
-    filled = cache.index[slots].values.astype(bool)       # (N, 8)
-    n, n_out = len(filled), len(prefs)
-
-    pick = np.full((n, n_out), -1, dtype=np.int8)
-    for j, pref in enumerate(prefs):
-        used = pick[:, :j]
-        for name in pref:
-            if name not in slots:          # 336 캐시에는 EXTRA 칸이 없다
-                continue
-            k = slots.index(name)
-            free = (pick[:, j] < 0) & filled[:, k]
-            if j > 0:                                     # 앞 칸이 이미 쓴 슬롯은 피한다
-                free &= ~(used == k).any(axis=1)
-            pick[free, j] = k
-    mask = (pick >= 0).astype(np.float32)
-    return pick, mask
+    filled = cache.index[slots].values.astype(bool)
+    return assign_slots(plan, slots, filled)
 
 
 # ---------------------------------------------------------------------------
