@@ -18,50 +18,85 @@ import sys
 from pathlib import Path
 
 
+def _defs(tree: ast.AST) -> set[str]:
+    """트리 안에서 정의되는 이름"""
+    out: set[str] = set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store):
+            out.add(n.id)
+        elif isinstance(n, (ast.Import, ast.ImportFrom)):
+            for a in n.names:
+                out.add((a.asname or a.name).split(".")[0])
+        elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            out.add(n.name)
+        elif isinstance(n, ast.arg):
+            out.add(n.arg)
+        elif isinstance(n, ast.comprehension):
+            for t in ast.walk(n.target):
+                if isinstance(t, ast.Name):
+                    out.add(t.id)
+        elif isinstance(n, ast.ExceptHandler) and n.name:
+            out.add(n.name)
+        elif isinstance(n, ast.withitem) and n.optional_vars is not None:
+            for t in ast.walk(n.optional_vars):
+                if isinstance(t, ast.Name):
+                    out.add(t.id)
+    return out
+
+
+def _loads(tree: ast.AST) -> tuple[set[str], set[str]]:
+    """(셀 실행 시 바로 읽는 이름, 함수 본문에서 호출 시점에 읽는 이름)"""
+    now: set[str] = set()
+    later: set[str] = set()
+
+    def visit(n: ast.AST, deferred: bool) -> None:
+        if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load):
+            (later if deferred else now).add(n.id)
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            # 데코레이터와 기본값은 정의 시점에 평가된다
+            for d in getattr(n, "decorator_list", []):
+                visit(d, deferred)
+            for d in n.args.defaults + [d for d in n.args.kw_defaults if d]:
+                visit(d, deferred)
+            for b in (n.body if isinstance(n.body, list) else [n.body]):
+                visit(b, True)
+            return
+        for c in ast.iter_child_nodes(n):
+            visit(c, deferred)
+
+    visit(tree, False)
+    return now, later
+
+
 def check(path: Path) -> list[tuple[int, str]]:
     nb = json.loads(path.read_text(encoding="utf-8"))
-    defined: set[str] = set(dir(builtins))
+    # get_ipython 은 IPython 커널이 주입한다
+    defined: set[str] = set(dir(builtins)) | {"get_ipython"}
+    # 가져온 외부 노트북의 죽은 분기처럼 알고 넘기는 이름. 노트북 메타데이터에 명시한다
+    defined |= set(nb.get("metadata", {}).get("check_notebook", {}).get("allow_undefined", []))
     problems: list[tuple[int, str]] = []
 
+    trees: list[tuple[int, ast.AST]] = []
     for i, c in enumerate(nb.get("cells", [])):
         if c.get("cell_type") != "code":
             continue
-        src = "".join(c.get("source", []))
         try:
-            tree = ast.parse(src)
+            trees.append((i, ast.parse("".join(c.get("source", [])))))
         except SyntaxError as e:
             problems.append((i, f"SyntaxError: {e}"))
-            continue
 
-        used = {n.id for n in ast.walk(tree)
-                if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
+    # 함수 본문은 호출될 때 이름을 찾으므로 뒤 셀에서 정의돼도 된다
+    anywhere = set(defined).union(*(_defs(t) for _, t in trees))
 
-        for n in ast.walk(tree):
-            if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store):
-                defined.add(n.id)
-            elif isinstance(n, (ast.Import, ast.ImportFrom)):
-                for a in n.names:
-                    defined.add((a.asname or a.name).split(".")[0])
-            elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                defined.add(n.name)
-            elif isinstance(n, ast.arg):
-                defined.add(n.arg)
-            elif isinstance(n, ast.comprehension):
-                for t in ast.walk(n.target):
-                    if isinstance(t, ast.Name):
-                        defined.add(t.id)
-            elif isinstance(n, ast.ExceptHandler) and n.name:
-                defined.add(n.name)
-            elif isinstance(n, ast.withitem) and n.optional_vars is not None:
-                for t in ast.walk(n.optional_vars):
-                    if isinstance(t, ast.Name):
-                        defined.add(t.id)
-
-        missing = sorted(u for u in used if u not in defined)
+    for i, tree in trees:
+        now, later = _loads(tree)
+        defined |= _defs(tree)
+        missing = sorted({u for u in now if u not in defined}
+                         | {u for u in later if u not in anywhere})
         if missing:
             problems.append((i, f"미정의 이름: {missing}"))
 
-    return problems
+    return sorted(problems)
 
 
 def main() -> int:
