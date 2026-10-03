@@ -70,6 +70,18 @@ class ModelConfig:
     unfreeze_blocks: int = 6
     pretrained: bool = True
     weights_path: str | None = None  # 오프라인 체크포인트 (커널은 인터넷이 없다)
+    # 그룹(인접 3장 묶음) 처리
+    #   "random" - 학습은 한 그룹만 무작위, 추론은 그룹별 예측 평균 (기존)
+    #              그룹들이 서로 붙어 있을 때(center 캐시)만 맞다
+    #   "tokens" - 모든 그룹을 인코딩해 (슬롯 x 그룹) 토큰으로 head 에 넣는다
+    #              그룹이 떨어져 있으면(spread 캐시) 병변이 한 그룹에만 보이므로
+    #              무작위 한 그룹 학습은 레이블과 어긋나고 평균은 신호를 희석한다
+    group_mode: str = "random"
+    # 이 모델이 학습된 캐시의 전처리 계약. 추론이 같은 입력을 다시 만들 때 쓴다
+    # 기본값은 이 필드가 생기기 전 캐시(224/336 center)와 같다
+    extent_mm: float = 130.0
+    slice_layout: str = "center"
+    triplet_centers: tuple[float, ...] = (0.25, 0.5, 0.75)
 
 
 class Encoder(nn.Module):
@@ -187,13 +199,22 @@ class KneeModel(nn.Module):
         self.encoder = Encoder(cfg)
         d = self.encoder.dim
 
-        self.n_groups = cfg.n_slices // cfg.slices_per_group
+        if cfg.group_mode not in ("random", "tokens"):
+            raise ValueError(f"알 수 없는 group_mode: {cfg.group_mode}")
+        self.n_views = cfg.n_slices // cfg.slices_per_group
+        # predict 가 돌릴 그룹 수. tokens 는 한 번에 전부 보므로 1
+        self.n_groups = self.n_views if cfg.group_mode == "random" else 1
+        n_tok = cfg.n_slots * (self.n_views if cfg.group_mode == "tokens" else 1)
         prior = None
         if cfg.slot_prior:
             import config as _cfg
             prior = build_slot_prior(list(_cfg.LABELS), cfg.n_slots)
+            if cfg.group_mode == "tokens":
+                # 토큰 순서는 (슬롯, 그룹) - 같은 슬롯의 그룹들이 같은 해부학 편향을 받는다
+                prior = prior.repeat_interleave(self.n_views, dim=1)
         # slot_emb 은 SlotHead 안에 있다 (루트와 같은 위치)
-        self.head = SlotHead(d, cfg.n_slots, cfg.n_labels,
+        # tokens 모드에서는 (슬롯, 그룹)마다 임베딩이 하나씩이라 위치 정보가 된다
+        self.head = SlotHead(d, n_tok, cfg.n_labels,
                              hidden=cfg.head_hidden, dropout=cfg.dropout, prior=prior)
 
     def forward(self, image: torch.Tensor, slot_mask: torch.Tensor,
@@ -208,9 +229,14 @@ class KneeModel(nn.Module):
         추론에서는 group 을 지정해 여러 그룹을 돌리고 평균할 수 있다.
         """
         b, s, n, h, w = image.shape
-        g, c = self.n_groups, self.cfg.slices_per_group
+        g, c = self.n_views, self.cfg.slices_per_group
 
         x = image.view(b, s, g, c, h, w)
+        if self.cfg.group_mode == "tokens":
+            # group 인자는 무시한다. 모든 그룹이 토큰이 된다
+            e = self.encoder(x.reshape(b * s * g, c, h, w)).view(b, s * g, -1)
+            m = slot_mask.repeat_interleave(g, dim=1)            # (B, S*G)
+            return self.head(e * m.unsqueeze(-1), m)
         if group is None:
             group = int(torch.randint(g, (1,)).item())
         if not 0 <= group < g:

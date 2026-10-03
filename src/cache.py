@@ -46,6 +46,14 @@ class CacheConfig:
     # 등간격 샘플링보다 연속이 낫다는 측정이 있다 (디스커션 737597)
     center_lo: float = 0.2
     center_hi: float = 0.8
+    # 슬라이스 배치
+    #   "center" - 중앙 구간 연속 n_slices 장 (기존 캐시 전부)
+    #   "spread" - 인접 3장 묶음을 triplet_centers 위치마다 하나씩
+    #              n_slices = 3 x len(triplet_centers)
+    # 중앙 연속 9장은 3~4mm 두께면 무릎 가운데 30mm 뿐이라
+    # 시상면에서 내외측 구획(반월상, 측부인대, OA)을 놓칠 수 있다 (journey.md 9장)
+    layout: str = "center"
+    triplet_centers: tuple[float, ...] = (0.25, 0.5, 0.75)
 
 
 @dataclass
@@ -105,6 +113,30 @@ def pick_series(study_dir: Path, cfg: CacheConfig) -> dict[str, Path]:
     return {k: v[1] for k, v in best.items()}
 
 
+def slice_indices(n: int, cfg: CacheConfig) -> list[int]:
+    """기하 순서로 정렬된 n 장 중 고를 인덱스. 길이는 항상 cfg.n_slices"""
+    if n <= 0:
+        raise ValueError("슬라이스가 없다")
+    if cfg.layout == "center":
+        lo, hi = int(n * cfg.center_lo), int(n * cfg.center_hi)
+        span = max(hi - lo, 1)
+        start = lo + max(0, (span - cfg.n_slices) // 2)
+        idx = list(range(start, min(start + cfg.n_slices, n)))
+        while len(idx) < cfg.n_slices:           # 슬라이스가 모자라면 끝을 반복
+            idx.append(idx[-1] if idx else 0)
+        return idx
+    if cfg.layout == "spread":
+        if cfg.n_slices != 3 * len(cfg.triplet_centers):
+            raise ValueError(f"spread 는 n_slices = 3 x {len(cfg.triplet_centers)} 여야 한다 "
+                             f"(지금 {cfg.n_slices})")
+        idx = []
+        for c in cfg.triplet_centers:
+            mid = min(max(int(round((n - 1) * c)), 1), max(n - 2, 0))
+            idx += [min(max(mid + d, 0), n - 1) for d in (-1, 0, 1)]
+        return idx
+    raise ValueError(f"알 수 없는 layout: {cfg.layout}")
+
+
 def read_slot(series_dir: Path, cfg: CacheConfig) -> tuple[np.ndarray, bool, float]:
     """한 시리즈에서 (n_slices, out_px, out_px) uint8 을 만든다."""
     import pydicom
@@ -124,14 +156,8 @@ def read_slot(series_dir: Path, cfg: CacheConfig) -> tuple[np.ndarray, bool, flo
         raise ValueError(f"헤더를 못 읽음: {series_dir}")
     keyed.sort(key=lambda t: t[0])
 
-    # 2) 중앙 구간에서 연속 n 장
-    n = len(keyed)
-    lo, hi = int(n * cfg.center_lo), int(n * cfg.center_hi)
-    span = max(hi - lo, 1)
-    start = lo + max(0, (span - cfg.n_slices) // 2)
-    chosen = [f for _, f in keyed[start:start + cfg.n_slices]]
-    while len(chosen) < cfg.n_slices:           # 슬라이스가 모자라면 끝을 반복
-        chosen.append(chosen[-1] if chosen else keyed[0][1])
+    # 2) 배치 규칙에 따라 고른다 (slice_indices)
+    chosen = [keyed[i][1] for i in slice_indices(len(keyed), cfg)]
 
     # 3) 픽셀을 읽고 물리 크롭
     planes, applied, mmpp = [], True, 0.0

@@ -76,9 +76,26 @@ def config_for(ck: dict) -> cache_mod.CacheConfig:
     ("체크포인트는 자기 전처리 계약을 갖고 다닌다", 디스커션 735154)
     """
     m = ck["model_cfg"]
-    c = cache_mod.CacheConfig(out_px=int(m["img_size"]), n_slices=int(m["n_slices"]))
+    # extent_mm / slice_layout 이 없는 옛 체크포인트는 그때 캐시(130mm, center)로 학습됐다
+    c = cache_mod.CacheConfig(out_px=int(m["img_size"]), n_slices=int(m["n_slices"]),
+                              extent_mm=float(m.get("extent_mm", 130.0)),
+                              layout=m.get("slice_layout", "center"),
+                              triplet_centers=tuple(m.get("triplet_centers", (0.25, 0.5, 0.75))))
     c.slots = dicom_io.SLOTS[:6]          # plan C 가 쓰는 6칸
     return c
+
+
+def flip_slices(img: torch.Tensor, net: M.KneeModel) -> torch.Tensor:
+    """슬라이스 순서 뒤집기 TTA
+
+    tokens 모드는 그룹 위치가 토큰 임베딩과 묶여 있다
+    전체를 뒤집으면 안쪽 묶음과 바깥쪽 묶음이 자리를 바꾸므로 묶음 안에서만 뒤집는다
+    """
+    if net.cfg.group_mode != "tokens":
+        return torch.flip(img, dims=[2])
+    b, s, n, h, w = img.shape
+    g = net.n_views
+    return img.view(b, s, g, n // g, h, w).flip(3).reshape(b, s, n, h, w)
 
 
 @torch.no_grad()
@@ -97,17 +114,22 @@ def predict_studies(nets: list[M.KneeModel], studies: list[str], cfg: InferConfi
 
     n_out = len(ds.resolve_plan(cfg.plan))
 
-    # (out_px, n_slices) 가 같은 모델끼리 묶는다
-    groups: dict[tuple[int, int], list[int]] = {}
+    # 전처리 계약이 완전히 같은 모델끼리 묶는다
+    # 해상도와 슬라이스 수만 보면 224/9 center 와 224/9 spread 가 한 텐서를 나눠 쓴다
+    groups: dict[tuple, list[int]] = {}
     for i, c in enumerate(ccfgs):
-        groups.setdefault((c.out_px, c.n_slices), []).append(i)
+        key = (c.out_px, c.n_slices, c.extent_mm, c.layout,
+               tuple(c.triplet_centers) if c.layout == "spread" else ())
+        groups.setdefault(key, []).append(i)
     print(f"전처리 그룹 {len(groups)}개: "
-          + ", ".join(f"{k[0]}px/{k[1]}슬 x{len(v)}모델" for k, v in groups.items()))
+          + ", ".join(f"{k[0]}px/{k[1]}슬/{k[2]:.0f}mm/{k[3]} x{len(v)}모델"
+                      for k, v in groups.items()))
 
     preds: list[np.ndarray | None] = [None] * len(nets)
     t0 = time.time()
 
-    for (px, nsl), idxs in groups.items():
+    for key, idxs in groups.items():
+        px, nsl = key[0], key[1]
         ccfg = ccfgs[idxs[0]]
         part = [[] for _ in idxs]
 
@@ -132,7 +154,7 @@ def predict_studies(nets: list[M.KneeModel], studies: list[str], cfg: InferConfi
                     ng = cfg.n_groups if cfg.n_groups is not None else net.n_groups
                     out = sum(net(img, msk, group=g) for g in range(ng)) / ng
                     if cfg.tta_slice_flip:
-                        flip = sum(net(torch.flip(img, dims=[2]), msk, group=g)
+                        flip = sum(net(flip_slices(img, net), msk, group=g)
                                    for g in range(ng)) / ng
                         out = (out + flip) / 2
                 part[j].append(torch.sigmoid(out.float()).cpu().numpy())

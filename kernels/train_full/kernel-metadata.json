@@ -1,0 +1,24 @@
+{
+  "id": "hyejinkwak/knee-train-full",
+  "title": "knee-train-full",
+  "code_file": "train_full.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "machine_shape": "NvidiaTeslaT4",
+  "enable_tpu": false,
+  "enable_internet": false,
+  "dataset_sources": [
+    "hyejinkwak/knee-src",
+    "hyejinkwak/knee-dinov2-weights",
+    "stevenleehans/rsna-knee-llm-report-labels"
+  ],
+  "competition_sources": [
+    "rsna-knee-abnormality-detection"
+  ],
+  "kernel_sources": [
+    "hyejinkwak/knee-cache-build"
+  ],
+  "model_sources": []
+}

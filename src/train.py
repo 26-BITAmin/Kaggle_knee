@@ -48,6 +48,10 @@ class TrainConfig:
     debug: bool = False
     debug_studies: int = 64
     w_unaddressed: float = 0.3
+    # 층별 lr 감쇠. 1.0 이면 인코더 전체가 lr 하나 (기존)
+    # d < 1 이면 마지막 블록이 lr, 아래로 한 블록마다 d 배씩 줄어든다
+    # 백본 전체를 열 때 아래층의 일반 특징을 덜 흔들기 위해 쓴다
+    layer_decay: float = 1.0
     out_dir: str = "/kaggle/working"
 
     def __post_init__(self):
@@ -99,16 +103,35 @@ def build_loaders(cache: ds.CacheHandle, cfg: TrainConfig):
     )
 
 
+def _encoder_depth(name: str, n_blocks: int) -> int:
+    """인코더 파라미터의 깊이. 임베딩 0, 블록 i 는 i+1, 출력 norm 은 n_blocks+1"""
+    n = name.removeprefix("encoder.backbone.")
+    if n.startswith("blocks."):
+        return int(n.split(".")[1]) + 1
+    if n.startswith(("norm", "fc_norm", "head")):
+        return n_blocks + 1
+    return 0                                     # cls_token, pos_embed, patch_embed
+
+
 def param_groups(net: M.KneeModel, cfg: TrainConfig):
     enc, head = [], []
     for n, p in net.named_parameters():
         if not p.requires_grad:
             continue
-        (enc if n.startswith("encoder.") else head).append(p)
-    return [
-        {"params": enc, "lr": cfg.lr},
-        {"params": head, "lr": cfg.lr * cfg.head_lr_mult},
-    ]
+        (enc if n.startswith("encoder.") else head).append((n, p))
+    head_group = {"params": [p for _, p in head], "lr": cfg.lr * cfg.head_lr_mult}
+
+    if cfg.layer_decay >= 1.0:
+        return [{"params": [p for _, p in enc], "lr": cfg.lr}, head_group]
+
+    n_blocks = len(net.encoder.backbone.blocks)
+    by_depth: dict[int, list] = {}
+    for n, p in enc:
+        by_depth.setdefault(_encoder_depth(n, n_blocks), []).append(p)
+    top = n_blocks + 1
+    groups = [{"params": ps, "lr": cfg.lr * cfg.layer_decay ** (top - d)}
+              for d, ps in sorted(by_depth.items())]
+    return groups + [head_group]
 
 
 @torch.no_grad()
@@ -156,12 +179,16 @@ def run(cache_root: str, cfg: TrainConfig, mcfg: M.ModelConfig | None = None) ->
     print(f"plan {cfg.plan}  슬롯 {n_slots}칸  "
           f"학습 파라미터 {sum(p.numel() for p in net.parameters() if p.requires_grad)/1e6:.1f}M")
 
-    opt = torch.optim.AdamW(param_groups(net, cfg), weight_decay=cfg.weight_decay)
+    groups = param_groups(net, cfg)
+    opt = torch.optim.AdamW(groups, weight_decay=cfg.weight_decay)
+    if len(groups) > 2:
+        print("층별 lr " + "  ".join(f"{g['lr']:.1e}" for g in groups[:-1])
+              + f"  | head {groups[-1]['lr']:.1e}")
     # OneCycleLR - 끝에서 lr 을 초기값의 1/10000 까지 떨어뜨려 수렴을 강제한다
     # cosine 은 0 까지만 가고, 우리 실행들은 마지막까지 불안정했다
     steps = max(1, len(train_loader) // cfg.accum) * cfg.epochs
     sched = torch.optim.lr_scheduler.OneCycleLR(
-        opt, max_lr=[cfg.lr, cfg.lr * cfg.head_lr_mult],
+        opt, max_lr=[g["lr"] for g in groups],
         total_steps=steps, pct_start=cfg.warmup_frac)
     scaler = torch.amp.GradScaler("cuda", enabled=cfg.amp and device.type == "cuda")
 
