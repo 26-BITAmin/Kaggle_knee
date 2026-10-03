@@ -166,6 +166,10 @@ n = round(L/s) 픽셀,  s_eff = L/P mm/pixel,  token = 14 · s_eff mm
 
 ## 6. 모델 - 여기는 병목이 아니다
 
+> 2026-10-03 수정 - 이 판단은 철회했다
+> 근거 측정이 OOF 0.78 수준 팀의 것이었고 0.93 이상 팀들은 입력 기하와 미세조정 범위에서 차이를 냈다
+> `docs/discussions.md` 2장과 `docs/journey.md` 9장 참고
+
 측정된 사실 (디스커션 735154)
 
 DINOv2-Small → Base (22M → 87M, step당 연산 3.9배)
