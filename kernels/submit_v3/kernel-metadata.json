@@ -1,0 +1,27 @@
+{
+  "id": "hyejinkwak/knee-submit-v3",
+  "title": "knee-submit-v3",
+  "code_file": "submit_v3.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "machine_shape": "NvidiaTeslaT4",
+  "enable_tpu": false,
+  "enable_internet": false,
+  "dataset_sources": [
+    "hyejinkwak/knee-src",
+    "hyejinkwak/knee-dicom-wheels"
+  ],
+  "competition_sources": [
+    "rsna-knee-abnormality-detection"
+  ],
+  "kernel_sources": [
+    "hyejinkwak/knee-train-336",
+    "hyejinkwak/knee-train-spread",
+    "hyejinkwak/knee-train-coatnet"
+  ],
+  "model_sources": [],
+  "docker_image_pinning_type": "original",
+  "docker_image": "gcr.io/kaggle-private-byod/python@sha256:37c64f7dd9c54116ecd1bcc88817c5469b88387388fade02bfa8bf3fc647d461"
+}

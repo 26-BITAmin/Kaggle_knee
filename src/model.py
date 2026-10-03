@@ -91,9 +91,12 @@ class Encoder(nn.Module):
         super().__init__()
         import timm
 
+        # img_size 는 ViT 만 받는다 (위치 임베딩 보간). CNN 생성자에 넘기면 TypeError
+        # CoAtNet 은 224 고정 상대 위치 편향이라 캐시도 224 여야 한다
+        kw = {"img_size": cfg.img_size} if cfg.backbone.startswith("vit") else {}
         self.backbone = timm.create_model(
             cfg.backbone, pretrained=cfg.pretrained and cfg.weights_path is None,
-            num_classes=0, in_chans=cfg.slices_per_group, img_size=cfg.img_size)
+            num_classes=0, in_chans=cfg.slices_per_group, **kw)
         # 224/14 = 16 토큰. 해상도를 바꾸면 위치 임베딩이 보간되므로
         # 체크포인트를 바꿀 때 img_size 도 같이 확인할 것
 
@@ -131,6 +134,8 @@ class Encoder(nn.Module):
         self._freeze(cfg.unfreeze_blocks)
 
     def _freeze(self, keep_last: int) -> None:
+        # blocks 가 없는 백본(ResNet, CoAtNet)은 전체를 학습한다
+        # CNN 은 BatchNorm 통계까지 새 도메인에 맞춰야 하므로 일부만 여는 이점이 적다
         blocks = getattr(self.backbone, "blocks", None)
         if blocks is None or keep_last >= len(blocks):
             return
