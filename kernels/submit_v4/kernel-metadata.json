@@ -1,0 +1,35 @@
+{
+  "id": "hyejinkwak/knee-submit-v4",
+  "title": "knee-submit-v4",
+  "code_file": "submit_v4.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_tpu": false,
+  "enable_internet": false,
+  "dataset_sources": [
+    "hyejinkwak/knee-src",
+    "hyejinkwak/knee-dicom-wheels"
+  ],
+  "competition_sources": [
+    "rsna-knee-abnormality-detection"
+  ],
+  "kernel_sources": [
+    "hyejinkwak/knee-train-336",
+    "hyejinkwak/knee-train-336-f1",
+    "hyejinkwak/knee-train-336-f2",
+    "hyejinkwak/knee-train-336-f3",
+    "hyejinkwak/knee-train-spread15",
+    "hyejinkwak/knee-train-spread15-f1",
+    "hyejinkwak/knee-train-spread15-f2",
+    "hyejinkwak/knee-train-spread15-f3",
+    "hyejinkwak/knee-train-coatnet",
+    "hyejinkwak/knee-train-coatnet-f1",
+    "hyejinkwak/knee-train-coatnet-f2",
+    "hyejinkwak/knee-train-coatnet-f3"
+  ],
+  "model_sources": [],
+  "docker_image_pinning_type": "original",
+  "docker_image": "gcr.io/kaggle-private-byod/python@sha256:37c64f7dd9c54116ecd1bcc88817c5469b88387388fade02bfa8bf3fc647d461"
+}
